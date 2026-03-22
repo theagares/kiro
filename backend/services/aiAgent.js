@@ -18,6 +18,57 @@ function createAIAgent({ llmClient } = {}) {
     '없다', '한다', '된다', '이다', '아닌', '같은', '다른',
   ]);
 
+  // ─── 중요도 신호어 (이 표현 뒤에 오는 단어/개념은 중요도 가중치 부여) ───
+  const IMPORTANCE_SIGNALS = [
+    '시험에', '시험', '중요', '핵심', '반드시', '꼭', '필수', '주의',
+    '기억', '외워', '암기', '출제', '자주', '강조', '포인트', '요점',
+    '정리', '결론', '핵심은', '중요한', '중요한건', '중요한것은',
+    '시험문제', '시험범위', '출제예정', '출제될', '나온다', '나와요',
+    '나옵니다', '중점', '집중', '특히', '반드시 알아야',
+  ];
+
+  // ─── 중요도 신호어 주변 문장/단어 추출 ───
+  function extractImportantSegments(text) {
+    // 문장 단위로 분리
+    const sentences = text.split(/[.!?。\n]\s*/).map(s => s.trim()).filter(s => s.length > 2);
+    const importantSentences = [];
+
+    for (const sentence of sentences) {
+      const lower = sentence.toLowerCase();
+      const hasSignal = IMPORTANCE_SIGNALS.some(signal => lower.includes(signal));
+      if (hasSignal) {
+        importantSentences.push(sentence);
+      }
+    }
+
+    return importantSentences;
+  }
+
+  // ─── 중요 문장에서 핵심 단어 추출 (가중치 포함) ───
+  function extractWeightedKeywords(text) {
+    const importantSegments = extractImportantSegments(text);
+    const wordFreqs = analyzeWordFrequency(text);
+    const importantText = importantSegments.join(' ');
+    const importantWordFreqs = importantText.length > 0 ? analyzeWordFrequency(importantText) : [];
+
+    // 중요 문장에 등장한 단어 집합
+    const importantWordSet = new Set(importantWordFreqs.map(w => w.word));
+
+    const now = new Date();
+    const maxFreq = wordFreqs[0] ? wordFreqs[0].frequency : 1;
+
+    return wordFreqs.slice(0, 20).map(({ word, frequency }) => {
+      const baseImportance = Math.min(1, frequency / maxFreq);
+      // 중요 문장에 등장한 단어면 가중치 +0.4
+      const signalBoost = importantWordSet.has(word) ? 0.4 : 0;
+      const importance = Math.min(1, baseImportance + signalBoost);
+      return { word, frequency, importance: Math.round(importance * 100) / 100, firstMentionedAt: now };
+    })
+    // importance 기준으로 재정렬
+    .sort((a, b) => b.importance - a.importance)
+    .slice(0, 10);
+  }
+
   // ─── 사이트명 추출 헬퍼 ───
   function extractSiteName(url) {
     try {
@@ -82,34 +133,26 @@ function createAIAgent({ llmClient } = {}) {
       return { mainPoints: [], keywords: [] };
     }
 
-    // 문장 분리 후 주요 포인트 추출
-    const sentences = text
+    // 중요 신호어가 포함된 문장을 mainPoints 우선으로 사용
+    const importantSentences = extractImportantSegments(text);
+    const allSentences = text
       .split(/[.!?。]\s*/)
       .map(s => s.trim())
       .filter(s => s.length > 5);
 
-    // 상위 3개 문장을 mainPoints로 사용
-    const mainPoints = sentences.slice(0, 3);
+    // 중요 문장 우선, 부족하면 일반 문장으로 채움
+    const mainPointCandidates = [
+      ...importantSentences,
+      ...allSentences.filter(s => !importantSentences.includes(s)),
+    ];
+    const mainPoints = mainPointCandidates.slice(0, 3);
 
-    // 키워드 추출
-    const wordFreqs = analyzeWordFrequency(text);
+    // 중요도 가중치 적용 키워드 추출
     const prevSet = new Set(previousKeywords || []);
-
-    const now = new Date();
-    const keywords = wordFreqs.slice(0, 10).map(({ word, frequency }) => {
-      // 이전 키워드에 포함된 경우 importance 가중치 부여 (연속성 유지)
-      const continuityBoost = prevSet.has(word) ? 0.2 : 0;
-      const maxFreq = wordFreqs[0] ? wordFreqs[0].frequency : 1;
-      const baseImportance = Math.min(1, frequency / maxFreq);
-      const importance = Math.min(1, baseImportance + continuityBoost);
-
-      return {
-        word,
-        frequency,
-        importance: Math.round(importance * 100) / 100,
-        firstMentionedAt: now,
-      };
-    });
+    const keywords = extractWeightedKeywords(text).map(k => ({
+      ...k,
+      importance: Math.min(1, k.importance + (prevSet.has(k.word) ? 0.1 : 0)),
+    }));
 
     return { mainPoints, keywords };
   }
@@ -119,21 +162,7 @@ function createAIAgent({ llmClient } = {}) {
     if (!text || typeof text !== 'string' || text.trim() === '') {
       return [];
     }
-
-    const wordFreqs = analyzeWordFrequency(text);
-    const now = new Date();
-
-    return wordFreqs.slice(0, 10).map(({ word, frequency }) => {
-      const maxFreq = wordFreqs[0] ? wordFreqs[0].frequency : 1;
-      const importance = Math.min(1, frequency / maxFreq);
-
-      return {
-        word,
-        frequency,
-        importance: Math.round(importance * 100) / 100,
-        firstMentionedAt: now,
-      };
-    });
+    return extractWeightedKeywords(text);
   }
 
   // ─── 공개 API ───
@@ -205,7 +234,12 @@ JSON 형식으로 응답: {"message": "...", "urgency": "LOW|MEDIUM|HIGH"}`,
       content: `다음 강의 텍스트를 요약하세요.
 이전 키워드: ${(previousKeywords || []).join(', ') || '없음'}
 텍스트: ${text}
-이전 키워드와의 연속성을 유지하며 요약하세요.
+
+규칙:
+- "시험에 나온다", "중요하다", "핵심", "반드시", "꼭 외워" 등 강조 표현이 포함된 문장을 mainPoints 최우선으로 선택하세요.
+- keywords는 강조 표현 주변에 등장한 개념어를 importance 높게 설정하세요.
+- 단순 빈도가 높아도 강조 표현 없이 등장한 단어는 importance를 낮게 설정하세요.
+- 이전 키워드와의 연속성을 유지하세요.
 JSON 형식으로 응답: {"mainPoints": ["..."], "keywords": [{"word": "...", "frequency": N, "importance": 0.0~1.0}]}`,
     };
   }
@@ -215,6 +249,10 @@ JSON 형식으로 응답: {"mainPoints": ["..."], "keywords": [{"word": "...", "
       role: 'system',
       content: `다음 텍스트에서 핵심 키워드를 추출하세요.
 텍스트: ${text}
+
+규칙:
+- "시험에 나온다", "중요하다", "핵심", "반드시", "꼭 외워" 등 강조 표현 주변의 개념어를 importance 1.0에 가깝게 설정하세요.
+- 강조 표현 없이 단순히 자주 등장한 단어는 importance를 낮게 설정하세요.
 JSON 형식으로 응답: {"keywords": [{"word": "...", "frequency": N, "importance": 0.0~1.0}]}`,
     };
   }

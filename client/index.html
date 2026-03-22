@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADHD 집중 보조 대시보드</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5; color: #333; line-height: 1.5;
+    }
+    header {
+      background: #1976d2; color: #fff; padding: 12px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+    #session-indicator { font-size: 13px; opacity: 0.85; }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      grid-template-rows: auto 1fr;
+      gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto;
+    }
+
+    /* --- 통계 패널 --- */
+    .stats-panel {
+      grid-column: 1 / -1;
+      display: flex; gap: 16px; flex-wrap: wrap;
+    }
+    .stat-card {
+      flex: 1; min-width: 140px;
+      background: #fff; border-radius: 8px; padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center;
+    }
+    .stat-card .stat-value {
+      font-size: 28px; font-weight: 700; color: #1976d2;
+    }
+    .stat-card .stat-label {
+      font-size: 12px; color: #666; margin-top: 4px;
+    }
+
+    /* --- 타임라인 --- */
+    .timeline-section {
+      background: #fff; border-radius: 8px; padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow-y: auto; max-height: 520px;
+    }
+    .timeline-section h2 { font-size: 15px; margin-bottom: 12px; color: #444; }
+    .search-bar {
+      display: flex; gap: 8px; margin-bottom: 12px;
+    }
+    .search-bar input {
+      flex: 1; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px;
+      font-size: 13px; outline: none;
+    }
+    .search-bar input:focus { border-color: #1976d2; }
+    .search-bar button {
+      padding: 6px 14px; background: #1976d2; color: #fff; border: none;
+      border-radius: 4px; cursor: pointer; font-size: 13px;
+    }
+    .search-bar button:hover { background: #1565c0; }
+
+    #timeline-container { display: flex; flex-direction: column; gap: 12px; }
+    .summary-card {
+      border-left: 3px solid #1976d2; padding: 10px 12px;
+      background: #fafafa; border-radius: 4px;
+    }
+    .summary-card .card-time {
+      font-size: 11px; color: #999; margin-bottom: 4px;
+    }
+    .summary-card .card-points { font-size: 13px; margin-bottom: 6px; }
+    .summary-card .card-points li { margin-left: 16px; margin-bottom: 2px; }
+    .summary-card .card-keywords { display: flex; gap: 4px; flex-wrap: wrap; }
+    .keyword-tag {
+      display: inline-block; padding: 2px 8px; background: #e3f2fd;
+      color: #1565c0; border-radius: 12px; font-size: 11px;
+    }
+    mark.highlight { background: #fff176; padding: 0 2px; border-radius: 2px; }
+    .no-results { color: #999; font-size: 13px; text-align: center; padding: 20px 0; }
+
+    /* --- 실시간 텍스트 --- */
+    .live-section {
+      background: #fff; border-radius: 8px; padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column;
+    }
+    .live-section h2 { font-size: 15px; margin-bottom: 12px; color: #444; }
+    #live-transcript {
+      flex: 1; min-height: 200px; max-height: 520px; overflow-y: auto;
+      font-size: 13px; color: #555; white-space: pre-wrap; word-break: break-word;
+      background: #fafafa; padding: 10px; border-radius: 4px; border: 1px solid #eee;
+    }
+
+    /* --- 컨트롤 패널 --- */
+    .control-panel {
+      grid-column: 1 / -1;
+      background: #fff; border-radius: 8px; padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .control-panel h2 { font-size: 15px; margin-bottom: 12px; color: #444; }
+    .control-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+    .control-row input[type="text"] {
+      flex: 1; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;
+    }
+    .control-row input[type="text"]:focus { border-color: #1976d2; outline: none; }
+    .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; color: #fff; }
+    .btn-primary { background: #1976d2; }
+    .btn-primary:hover { background: #1565c0; }
+    .btn-success { background: #388e3c; }
+    .btn-success:hover { background: #2e7d32; }
+    .btn-danger { background: #d32f2f; }
+    .btn-danger:hover { background: #c62828; }
+    .btn:disabled { background: #bbb; cursor: not-allowed; }
+    .text-input-area {
+      width: 100%; min-height: 80px; padding: 10px; border: 1px solid #ccc;
+      border-radius: 4px; font-size: 13px; font-family: inherit; resize: vertical;
+    }
+    .text-input-area:focus { border-color: #1976d2; outline: none; }
+    .status-msg { font-size: 12px; color: #666; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📚 ADHD 집중 보조 대시보드</h1>
+    <span id="session-indicator">세션 없음</span>
+  </header>
+
+  <div class="dashboard-grid">
+    <!-- 컨트롤 패널 -->
+    <div class="control-panel">
+      <h2>🎛️ 세션 컨트롤</h2>
+      <div class="control-row">
+        <input type="text" id="session-title" placeholder="강의 제목 (예: 자료구조 3주차)" value="테스트 강의" />
+        <button class="btn btn-success" id="btn-start-session">세션 시작</button>
+        <button class="btn btn-danger" id="btn-end-session" disabled>세션 종료</button>
+        <span class="status-msg" id="session-status"></span>
+      </div>
+      <h2 style="margin-top:8px;">✏️ 텍스트 직접 입력 (마이크 없이 테스트)</h2>
+      <textarea class="text-input-area" id="manual-text" placeholder="강의 내용을 여기에 입력하세요...&#10;예: 오늘은 스택과 큐의 차이점에 대해 알아보겠습니다." disabled></textarea>
+      <div class="control-row" style="margin-top:8px;">
+        <button class="btn btn-primary" id="btn-send-text" disabled>텍스트 전송</button>
+        <button class="btn btn-success" id="btn-trigger-summary" disabled>📊 요약 생성</button>
+        <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
+          <input type="checkbox" id="chk-auto-send" /> 엔터로 자동 전송
+        </label>
+        <span class="status-msg" id="send-status"></span>
+      </div>
+    </div>
+
+    <!-- 이탈 통계 -->
+    <div class="stats-panel" id="stats-panel">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-total-distractions">0</div>
+        <div class="stat-label">총 이탈 횟수</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-total-time">0s</div>
+        <div class="stat-label">총 이탈 시간</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-avg-time">0s</div>
+        <div class="stat-label">평균 이탈 시간</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-focus-rate">100%</div>
+        <div class="stat-label">집중률</div>
+      </div>
+    </div>
+
+    <!-- 타임라인 요약 -->
+    <div class="timeline-section">
+      <h2>📝 강의 요약 타임라인</h2>
+      <div class="search-bar">
+        <input type="text" id="keyword-search" placeholder="키워드 검색..." />
+        <button id="search-btn">검색</button>
+      </div>
+      <div id="timeline-container"></div>
+    </div>
+
+    <!-- 실시간 텍스트 -->
+    <div class="live-section">
+      <h2>🎙️ 실시간 텍스트</h2>
+      <div id="live-transcript">대기 중...</div>
+    </div>
+  </div>
+
+  <script src="notification.js"></script>
+  <script src="tabMonitor.js"></script>
+  <script src="speechCapture.js"></script>
+  <script src="main.js"></script>
+  <script src="dashboard.js"></script>
+  <script>
+    (function () {
+      const API = window.location.origin;
+      let currentSessionId = null;
+
+      const titleInput = document.getElementById('session-title');
+      const btnStart = document.getElementById('btn-start-session');
+      const btnEnd = document.getElementById('btn-end-session');
+      const sessionStatus = document.getElementById('session-status');
+      const manualText = document.getElementById('manual-text');
+      const btnSend = document.getElementById('btn-send-text');
+      const btnSummary = document.getElementById('btn-trigger-summary');
+      const chkAuto = document.getElementById('chk-auto-send');
+      const sendStatus = document.getElementById('send-status');
+
+      btnStart.addEventListener('click', async () => {
+        const title = titleInput.value.trim() || '테스트 강의';
+        try {
+          const res = await fetch(API + '/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: crypto.randomUUID(), title })
+          });
+          const session = await res.json();
+          currentSessionId = session.sessionId;
+          Dashboard.init(currentSessionId);
+          // lapseHarness 캡처 시작 (요약 타이머 활성화)
+          await fetch(API + '/api/lapse/start/' + currentSessionId, { method: 'POST' });
+          sessionStatus.textContent = '세션 활성: ' + currentSessionId.slice(0, 8) + '...';
+          btnStart.disabled = true;
+          btnEnd.disabled = false;
+          manualText.disabled = false;
+          btnSend.disabled = false;
+          btnSummary.disabled = false;
+        } catch (e) {
+          sessionStatus.textContent = '세션 생성 실패: ' + e.message;
+        }
+      });
+
+      btnEnd.addEventListener('click', async () => {
+        if (!currentSessionId) return;
+        try {
+          // lapseHarness 캡처 중단
+          await fetch(API + '/api/lapse/stop/' + currentSessionId, { method: 'POST' });
+          await fetch(API + '/api/sessions/' + currentSessionId + '/end', { method: 'PATCH' });
+          Dashboard.destroy();
+          sessionStatus.textContent = '세션 종료됨';
+          btnStart.disabled = false;
+          btnEnd.disabled = true;
+          manualText.disabled = true;
+          btnSend.disabled = true;
+          btnSummary.disabled = true;
+          currentSessionId = null;
+        } catch (e) {
+          sessionStatus.textContent = '종료 실패: ' + e.message;
+        }
+      });
+
+      async function sendText() {
+        const text = manualText.value.trim();
+        if (!text || !currentSessionId) return;
+        try {
+          await fetch(API + '/api/lapse/transcript', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chunkId: crypto.randomUUID(),
+              sessionId: currentSessionId,
+              text: text,
+              startTime: new Date().toISOString(),
+              endTime: new Date().toISOString(),
+              isFinal: true,
+              confidence: 0.95
+            })
+          });
+          Dashboard.updateLiveTranscript(text);
+          sendStatus.textContent = '전송 완료 (' + new Date().toLocaleTimeString('ko-KR') + ')';
+          manualText.value = '';
+        } catch (e) {
+          sendStatus.textContent = '전송 실패: ' + e.message;
+        }
+      }
+
+      btnSend.addEventListener('click', sendText);
+      manualText.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && chkAuto.checked) {
+          e.preventDefault();
+          sendText();
+        }
+      });
+
+      btnSummary.addEventListener('click', async () => {
+        if (!currentSessionId) return;
+        btnSummary.disabled = true;
+        sendStatus.textContent = '요약 생성 중...';
+        try {
+          const res = await fetch(API + '/api/lapse/trigger-summary/' + currentSessionId, { method: 'POST' });
+          const data = await res.json();
+          if (data.summaryId) {
+            sendStatus.textContent = '요약 생성 완료!';
+          } else {
+            sendStatus.textContent = data.message || '요약할 텍스트가 없습니다.';
+          }
+        } catch (e) {
+          sendStatus.textContent = '요약 실패: ' + e.message;
+        }
+        btnSummary.disabled = false;
+      });
+    })();
+  </script>
+</body>
+</html>
