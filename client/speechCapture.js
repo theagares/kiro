@@ -14,6 +14,8 @@ const SpeechCapture = (() => {
   let _recognition = null;
   let _capturing = false;
   let _chunkCounter = 0;
+  let _onTranscript = null; // 실시간 텍스트 콜백
+  let _fullTranscript = ''; // 누적 텍스트
 
   // --- 헬퍼 ---
 
@@ -79,22 +81,33 @@ const SpeechCapture = (() => {
    */
   function _handleResult(event) {
     const now = new Date();
+    let interimText = '';
 
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
       const alternative = result[0];
 
-      const chunk = {
-        chunkId: _generateChunkId(),
-        sessionId: _sessionId,
-        text: alternative.transcript,
-        startTime: now.toISOString(),
-        endTime: new Date().toISOString(),
-        isFinal: result.isFinal,
-        confidence: alternative.confidence,
-      };
+      if (result.isFinal) {
+        _fullTranscript += alternative.transcript + '\n';
 
-      _sendChunk(chunk);
+        const chunk = {
+          chunkId: _generateChunkId(),
+          sessionId: _sessionId,
+          text: alternative.transcript,
+          startTime: now.toISOString(),
+          endTime: new Date().toISOString(),
+          isFinal: true,
+          confidence: alternative.confidence,
+        };
+        _sendChunk(chunk);
+      } else {
+        interimText += alternative.transcript;
+      }
+    }
+
+    // 실시간 텍스트 콜백 호출 (확정 텍스트 + 현재 중간 결과)
+    if (_onTranscript) {
+      _onTranscript(_fullTranscript + (interimText ? '🔄 ' + interimText : ''));
     }
   }
 
@@ -109,9 +122,20 @@ const SpeechCapture = (() => {
     const fatalErrors = ['aborted', 'not-allowed', 'service-not-allowed'];
     if (fatalErrors.includes(event.error)) {
       console.warn('[SpeechCapture] 마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해 주세요.');
+      if (_onTranscript) _onTranscript('❌ 마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해 주세요.');
       _capturing = false;
       return;
     }
+
+    // no-speech는 정상적인 상황 (조용할 때 발생) — 조용히 재시작
+    if (event.error === 'no-speech') {
+      if (_capturing) {
+        setTimeout(() => _restartRecognition(), 300);
+      }
+      return;
+    }
+
+    if (_onTranscript) _onTranscript(_fullTranscript + '\n⚠️ 인식 오류: ' + event.error + ' (재시작 중...)');
 
     if (_capturing) {
       setTimeout(() => _restartRecognition(), 300);
@@ -149,8 +173,9 @@ const SpeechCapture = (() => {
    * 음성 캡처를 시작한다.
    * @param {string} sessionId - 현재 강의 세션 ID
    * @param {string} apiBaseUrl - 백엔드 API 기본 URL (예: 'http://localhost:3000')
+   * @param {Function} [onTranscript] - 실시간 텍스트 콜백 (텍스트 문자열을 인자로 받음)
    */
-  function startCapture(sessionId, apiBaseUrl) {
+  function startCapture(sessionId, apiBaseUrl, onTranscript) {
     if (_capturing) return;
     if (!sessionId) {
       throw new Error('[SpeechCapture] sessionId is required');
@@ -160,8 +185,10 @@ const SpeechCapture = (() => {
     }
 
     _sessionId = sessionId;
-    _apiBaseUrl = apiBaseUrl.replace(/\/+$/, ''); // 후행 슬래시 제거
+    _apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
     _chunkCounter = 0;
+    _onTranscript = onTranscript || null;
+    _fullTranscript = '';
 
     _recognition = _initRecognition();
     _capturing = true;

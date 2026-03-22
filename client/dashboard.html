@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ADHD 집중 보조 대시보드</title>
+  <link rel="icon" href="data:," />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -111,11 +112,6 @@
     .btn-danger { background: #d32f2f; }
     .btn-danger:hover { background: #c62828; }
     .btn:disabled { background: #bbb; cursor: not-allowed; }
-    .text-input-area {
-      width: 100%; min-height: 80px; padding: 10px; border: 1px solid #ccc;
-      border-radius: 4px; font-size: 13px; font-family: inherit; resize: vertical;
-    }
-    .text-input-area:focus { border-color: #1976d2; outline: none; }
     .status-msg { font-size: 12px; color: #666; margin-left: 8px; }
   </style>
 </head>
@@ -135,20 +131,13 @@
         <button class="btn btn-danger" id="btn-end-session" disabled>세션 종료</button>
         <span class="status-msg" id="session-status"></span>
       </div>
-      <h2 style="margin-top:8px;">🎙️ 음성 입력 / ✏️ 텍스트 직접 입력</h2>
+      <h2 style="margin-top:8px;">🎙️ 음성 입력</h2>
       <div class="control-row">
         <button class="btn btn-primary" id="btn-mic-start" disabled>🎙️ 마이크 시작</button>
         <button class="btn btn-danger" id="btn-mic-stop" disabled>⏹️ 마이크 중지</button>
-        <span class="status-msg" id="mic-status"></span>
-      </div>
-      <textarea class="text-input-area" id="manual-text" placeholder="강의 내용을 여기에 입력하세요...&#10;예: 오늘은 스택과 큐의 차이점에 대해 알아보겠습니다." disabled></textarea>
-      <div class="control-row" style="margin-top:8px;">
-        <button class="btn btn-primary" id="btn-send-text" disabled>텍스트 전송</button>
         <button class="btn btn-success" id="btn-trigger-summary" disabled>📊 요약 생성</button>
         <button class="btn btn-danger" id="btn-sim-distraction" disabled>🚨 이탈 시뮬레이션</button>
-        <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
-          <input type="checkbox" id="chk-auto-send" /> 엔터로 자동 전송
-        </label>
+        <span class="status-msg" id="mic-status"></span>
         <span class="status-msg" id="send-status"></span>
       </div>
     </div>
@@ -204,14 +193,11 @@
       const btnStart = document.getElementById('btn-start-session');
       const btnEnd = document.getElementById('btn-end-session');
       const sessionStatus = document.getElementById('session-status');
-      const manualText = document.getElementById('manual-text');
-      const btnSend = document.getElementById('btn-send-text');
       const btnSummary = document.getElementById('btn-trigger-summary');
       const btnSimDistraction = document.getElementById('btn-sim-distraction');
       const btnMicStart = document.getElementById('btn-mic-start');
       const btnMicStop = document.getElementById('btn-mic-stop');
       const micStatus = document.getElementById('mic-status');
-      const chkAuto = document.getElementById('chk-auto-send');
       const sendStatus = document.getElementById('send-status');
 
       btnStart.addEventListener('click', async () => {
@@ -238,8 +224,6 @@
           sessionStatus.textContent = '세션 활성: ' + currentSessionId.slice(0, 8) + '...';
           btnStart.disabled = true;
           btnEnd.disabled = false;
-          manualText.disabled = false;
-          btnSend.disabled = false;
           btnSummary.disabled = false;
           btnSimDistraction.disabled = false;
           btnMicStart.disabled = false;
@@ -262,8 +246,6 @@
           sessionStatus.textContent = '세션 종료됨';
           btnStart.disabled = false;
           btnEnd.disabled = true;
-          manualText.disabled = true;
-          btnSend.disabled = true;
           btnSummary.disabled = true;
           btnSimDistraction.disabled = true;
           btnMicStart.disabled = true;
@@ -329,38 +311,7 @@
         }
       }
 
-      async function sendText() {
-        const text = manualText.value.trim();
-        if (!text || !currentSessionId) return;
-        try {
-          await fetch(API + '/api/lapse/transcript', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chunkId: crypto.randomUUID(),
-              sessionId: currentSessionId,
-              text: text,
-              startTime: new Date().toISOString(),
-              endTime: new Date().toISOString(),
-              isFinal: true,
-              confidence: 0.95
-            })
-          });
-          Dashboard.updateLiveTranscript(text);
-          sendStatus.textContent = '전송 완료 (' + new Date().toLocaleTimeString('ko-KR') + ')';
-          manualText.value = '';
-        } catch (e) {
-          sendStatus.textContent = '전송 실패: ' + e.message;
-        }
-      }
-
-      btnSend.addEventListener('click', sendText);
-      manualText.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey && chkAuto.checked) {
-          e.preventDefault();
-          sendText();
-        }
-      });
+      async function sendText() {}
 
       btnSummary.addEventListener('click', async () => {
         if (!currentSessionId) return;
@@ -404,7 +355,9 @@
       btnMicStart.addEventListener('click', () => {
         if (!currentSessionId) return;
         try {
-          SpeechCapture.startCapture(currentSessionId, API);
+          SpeechCapture.startCapture(currentSessionId, API, (text) => {
+            Dashboard.updateLiveTranscript(text);
+          });
           btnMicStart.disabled = true;
           btnMicStop.disabled = false;
           micStatus.textContent = '🔴 음성 인식 중...';
