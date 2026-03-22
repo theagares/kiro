@@ -56,6 +56,21 @@ const Dashboard = (() => {
     }
   }
 
+  /**
+   * 세션의 집중률 퍼센타일을 가져온다.
+   * GET /api/focus/percentile/:sessionId
+   */
+  async function _fetchPercentile() {
+    try {
+      const res = await fetch(`${_apiBaseUrl}/api/focus/percentile/${_sessionId}`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (err) {
+      console.error('[Dashboard] Failed to fetch percentile:', err);
+      return null;
+    }
+  }
+
   // --- 렌더링 ---
 
   /**
@@ -176,6 +191,22 @@ const Dashboard = (() => {
   }
 
   /**
+   * 퍼센타일 정보를 표시한다.
+   */
+  function showPercentile(data) {
+    if (!data) return;
+    const el = _el('stat-percentile');
+    if (!el) return;
+
+    if (data.totalSessions === 0) {
+      el.textContent = '-';
+    } else {
+      const topPercent = Math.max(1, 100 - data.percentile);
+      el.textContent = `상위 ${topPercent}%`;
+    }
+  }
+
+  /**
    * 초를 읽기 쉬운 형식으로 변환한다.
    */
   function _formatSeconds(sec) {
@@ -201,9 +232,10 @@ const Dashboard = (() => {
   async function _poll() {
     if (!_sessionId) return;
 
-    const [summaries, stats] = await Promise.all([
+    const [summaries, stats, percentile] = await Promise.all([
       _fetchSummaries(),
       _fetchStats(),
+      _fetchPercentile(),
     ]);
 
     if (summaries && summaries.length > 0) {
@@ -213,6 +245,10 @@ const Dashboard = (() => {
 
     if (stats) {
       showDistractionStats(stats);
+    }
+
+    if (percentile) {
+      showPercentile(percentile);
     }
   }
 
@@ -288,5 +324,6 @@ const Dashboard = (() => {
     addSummaryCard,
     updateLiveTranscript,
     showDistractionStats,
+    showPercentile,
   };
 })();

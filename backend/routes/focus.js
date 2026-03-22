@@ -85,10 +85,24 @@ router.post('/tab-return', validateBody(TabReturnBodySchema), async (req, res) =
 
 // === GET /api/focus/stats/:sessionId — 이탈 통계 조회 ===
 
-router.get('/stats/:sessionId', (req, res) => {
+router.get('/stats/:sessionId', async (req, res) => {
   try {
-    const stats = focusHarness.getDistractionStats(req.params.sessionId);
+    const stats = await focusHarness.getDistractionStats(req.params.sessionId);
     return res.status(200).json(stats);
+  } catch (err) {
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// === GET /api/focus/percentile/:sessionId — 집중률 퍼센타일 조회 ===
+
+router.get('/percentile/:sessionId', async (req, res) => {
+  try {
+    const result = await focusHarness.getFocusPercentile(req.params.sessionId);
+    return res.status(200).json(result);
   } catch (err) {
     if (err.message.includes('not found')) {
       return res.status(404).json({ error: err.message });

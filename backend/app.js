@@ -1,7 +1,10 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
+const supabaseClient = require('./db/supabaseClient');
 const sessionsRouter = require('./routes/sessions');
 const sitesRouter = require('./routes/sites');
 const focusRouter = require('./routes/focus');
@@ -13,6 +16,14 @@ const { createLapseHarness } = require('./services/lapseHarness');
 const { createFocusHarness } = require('./services/focusHarness');
 
 const app = express();
+
+// === Supabase 초기화 ===
+if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+  supabaseClient.initialize(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+  console.log('[Supabase] Connected:', supabaseClient.isConnected());
+} else {
+  console.warn('[Supabase] SUPABASE_URL / SUPABASE_ANON_KEY not set — using in-memory fallback');
+}
 
 // === 미들웨어 ===
 app.use(cors());
@@ -35,6 +46,11 @@ app.use('/api/sessions', sessionsRouter);
 app.use('/api/sites', sitesRouter);
 app.use('/api/focus', focusRouter);
 app.use('/api/lapse', lapseRouter);
+
+// === SPA 폴백: 루트 경로에서 dashboard.html 서빙 ===
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'client', 'dashboard.html'));
+});
 
 // === 글로벌 에러 핸들링 미들웨어 ===
 app.use((err, req, res, _next) => {

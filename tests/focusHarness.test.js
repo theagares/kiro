@@ -24,8 +24,8 @@ beforeEach(() => {
 
 describe('FocusHarness', () => {
   describe('handleTabSwitch', () => {
-    test('returns null for study sites', async () => {
-      const session = createSession(validUserId(), 'Math 101');
+    test('returns persuasion for all sites including study sites', async () => {
+      const session = await createSession(validUserId(), 'Math 101');
       const harness = createFocusHarness({
         lapseHarness: createMockLapseHarness(),
         aiAgent: createMockAIAgent(),
@@ -37,11 +37,13 @@ describe('FocusHarness', () => {
         timestamp: new Date(),
       });
 
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result.message).toBeDefined();
+      expect(result.urgency).toBeDefined();
     });
 
     test('returns PersuasionMessage for non-study sites', async () => {
-      const session = createSession(validUserId(), 'Math 101');
+      const session = await createSession(validUserId(), 'Math 101');
       const mockLapse = createMockLapseHarness();
       const mockAI = createMockAIAgent();
       const harness = createFocusHarness({
@@ -63,7 +65,7 @@ describe('FocusHarness', () => {
     });
 
     test('calls lapseHarness.getRecentContext on non-study site', async () => {
-      const session = createSession(validUserId(), 'Physics');
+      const session = await createSession(validUserId(), 'Physics');
       const mockLapse = createMockLapseHarness();
       const mockAI = createMockAIAgent();
       const harness = createFocusHarness({
@@ -81,7 +83,7 @@ describe('FocusHarness', () => {
     });
 
     test('calls aiAgent.generatePersuasion with context and targetUrl', async () => {
-      const session = createSession(validUserId(), 'History');
+      const session = await createSession(validUserId(), 'History');
       const context = { recentText: '역사 강의 내용', keywords: ['역사'] };
       const mockLapse = createMockLapseHarness(context);
       const mockAI = createMockAIAgent();
@@ -120,8 +122,8 @@ describe('FocusHarness', () => {
 
     test('throws when session is not active', async () => {
       const { endSession } = require('../backend/services/sessionManager');
-      const session = createSession(validUserId(), 'English');
-      endSession(session.sessionId);
+      const session = await createSession(validUserId(), 'English');
+      await endSession(session.sessionId);
 
       const harness = createFocusHarness();
       await expect(
@@ -134,7 +136,7 @@ describe('FocusHarness', () => {
     });
 
     test('works with default fallbacks when no dependencies injected', async () => {
-      const session = createSession(validUserId(), 'Chemistry');
+      const session = await createSession(validUserId(), 'Chemistry');
       const harness = createFocusHarness();
 
       const result = await harness.handleTabSwitch({
@@ -151,7 +153,7 @@ describe('FocusHarness', () => {
 
   describe('handleTabReturn', () => {
     test('records DistractionEvent with correct duration', async () => {
-      const session = createSession(validUserId(), 'Biology');
+      const session = await createSession(validUserId(), 'Biology');
       const harness = createFocusHarness({
         lapseHarness: createMockLapseHarness(),
         aiAgent: createMockAIAgent(),
@@ -181,8 +183,8 @@ describe('FocusHarness', () => {
       expect(event.persuasionMessage).toBe('지금 교수님이 중간고사 범위를 말씀 중이에요!');
     });
 
-    test('returns null when no pending departure', () => {
-      const session = createSession(validUserId(), 'Art');
+    test('returns null when no pending departure', async () => {
+      const session = await createSession(validUserId(), 'Art');
       const harness = createFocusHarness();
 
       const result = harness.handleTabReturn({
@@ -201,7 +203,7 @@ describe('FocusHarness', () => {
     });
 
     test('stores event retrievable via getDistractionEvents', async () => {
-      const session = createSession(validUserId(), 'Music');
+      const session = await createSession(validUserId(), 'Music');
       const harness = createFocusHarness({
         lapseHarness: createMockLapseHarness(),
         aiAgent: createMockAIAgent(),
@@ -224,7 +226,7 @@ describe('FocusHarness', () => {
     });
 
     test('clears pending departure after return', async () => {
-      const session = createSession(validUserId(), 'PE');
+      const session = await createSession(validUserId(), 'PE');
       const harness = createFocusHarness({
         lapseHarness: createMockLapseHarness(),
         aiAgent: createMockAIAgent(),
@@ -251,11 +253,11 @@ describe('FocusHarness', () => {
   });
 
   describe('getDistractionStats', () => {
-    test('returns zero stats for session with no distractions', () => {
-      const session = createSession(validUserId(), 'Philosophy');
+    test('returns zero stats for session with no distractions', async () => {
+      const session = await createSession(validUserId(), 'Philosophy');
       const harness = createFocusHarness();
 
-      const stats = harness.getDistractionStats(session.sessionId);
+      const stats = await harness.getDistractionStats(session.sessionId);
 
       expect(stats.sessionId).toBe(session.sessionId);
       expect(stats.totalDistractions).toBe(0);
@@ -267,7 +269,7 @@ describe('FocusHarness', () => {
     });
 
     test('calculates correct stats after multiple distractions', async () => {
-      const session = createSession(validUserId(), 'Economics');
+      const session = await createSession(validUserId(), 'Economics');
       const harness = createFocusHarness({
         lapseHarness: createMockLapseHarness(),
         aiAgent: createMockAIAgent(),
@@ -306,7 +308,7 @@ describe('FocusHarness', () => {
         timestamp: new Date('2024-01-01T10:02:10Z'),
       });
 
-      const stats = harness.getDistractionStats(session.sessionId);
+      const stats = await harness.getDistractionStats(session.sessionId);
 
       expect(stats.totalDistractions).toBe(3);
       expect(stats.totalDistractedSeconds).toBe(60);
@@ -319,20 +321,20 @@ describe('FocusHarness', () => {
       expect(stats.focusRate).toBeLessThanOrEqual(1);
     });
 
-    test('throws when sessionId is missing', () => {
+    test('throws when sessionId is missing', async () => {
       const harness = createFocusHarness();
-      expect(() => harness.getDistractionStats(null)).toThrow('sessionId is required');
+      await expect(harness.getDistractionStats(null)).rejects.toThrow('sessionId is required');
     });
 
-    test('throws when session does not exist', () => {
+    test('throws when session does not exist', async () => {
       const harness = createFocusHarness();
-      expect(() => harness.getDistractionStats(crypto.randomUUID())).toThrow('Session not found');
+      await expect(harness.getDistractionStats(crypto.randomUUID())).rejects.toThrow('Session not found');
     });
   });
 
   describe('clearAll', () => {
     test('clears all stored data', async () => {
-      const session = createSession(validUserId(), 'Sociology');
+      const session = await createSession(validUserId(), 'Sociology');
       const harness = createFocusHarness({
         lapseHarness: createMockLapseHarness(),
         aiAgent: createMockAIAgent(),

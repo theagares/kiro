@@ -1,6 +1,6 @@
 const express = require('express');
 const { z } = require('zod');
-const { createSession, endSession, getSession } = require('../services/sessionManager');
+const { createSession, endSession, getSession, getSessionsByUser } = require('../services/sessionManager');
 
 const router = express.Router();
 
@@ -29,10 +29,10 @@ function validateBody(schema) {
 
 // === POST /api/sessions — 세션 생성 ===
 
-router.post('/', validateBody(CreateSessionBodySchema), (req, res) => {
+router.post('/', validateBody(CreateSessionBodySchema), async (req, res) => {
   try {
     const { userId, title } = req.validatedBody;
-    const session = createSession(userId, title);
+    const session = await createSession(userId, title);
     return res.status(201).json(session);
   } catch (err) {
     return res.status(400).json({ error: err.message });
@@ -41,9 +41,9 @@ router.post('/', validateBody(CreateSessionBodySchema), (req, res) => {
 
 // === PATCH /api/sessions/:sessionId/end — 세션 종료 ===
 
-router.patch('/:sessionId/end', (req, res) => {
+router.patch('/:sessionId/end', async (req, res) => {
   try {
-    const session = endSession(req.params.sessionId);
+    const session = await endSession(req.params.sessionId);
     return res.status(200).json(session);
   } catch (err) {
     if (err.message.includes('not found')) {
@@ -55,12 +55,27 @@ router.patch('/:sessionId/end', (req, res) => {
 
 // === GET /api/sessions/:sessionId — 세션 조회 ===
 
-router.get('/:sessionId', (req, res) => {
-  const session = getSession(req.params.sessionId);
+router.get('/:sessionId', async (req, res) => {
+  const session = await getSession(req.params.sessionId);
   if (!session) {
     return res.status(404).json({ error: `Session not found: ${req.params.sessionId}` });
   }
   return res.status(200).json(session);
+});
+
+// === GET /api/sessions?userId=xxx — 사용자 세션 목록 조회 ===
+
+router.get('/', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+    const sessions = await getSessionsByUser(userId);
+    return res.status(200).json(sessions);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
 });
 
 module.exports = router;

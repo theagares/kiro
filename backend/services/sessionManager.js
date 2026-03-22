@@ -1,15 +1,20 @@
 const { LectureSessionSchema, generateUUID } = require('../models/schemas');
+const supabaseClient = require('../db/supabaseClient');
 
-// In-memory session store
+// 인메모리 폴백 (Supabase 미연결 시)
 const sessions = new Map();
+
+function _useSupabase() {
+  return supabaseClient.isConnected();
+}
 
 /**
  * 새 강의 세션을 생성한다.
  * @param {string} userId - 사용자 UUID
  * @param {string} title - 강의 제목
- * @returns {object} 생성된 LectureSession
+ * @returns {Promise<object>} 생성된 LectureSession
  */
-function createSession(userId, title) {
+async function createSession(userId, title) {
   if (!userId || typeof userId !== 'string' || userId.trim() === '') {
     throw new Error('userId is required and must be a non-empty string');
   }
@@ -27,6 +32,11 @@ function createSession(userId, title) {
   };
 
   const session = LectureSessionSchema.parse(sessionData);
+
+  if (_useSupabase()) {
+    return await supabaseClient.insertSession(session);
+  }
+
   sessions.set(session.sessionId, session);
   return session;
 }
@@ -34,10 +44,10 @@ function createSession(userId, title) {
 /**
  * 세션을 종료한다.
  * @param {string} sessionId - 종료할 세션 ID
- * @returns {object} 업데이트된 LectureSession
+ * @returns {Promise<object>} 업데이트된 LectureSession
  */
-function endSession(sessionId) {
-  const session = sessions.get(sessionId);
+async function endSession(sessionId) {
+  const session = await getSession(sessionId);
   if (!session) {
     throw new Error(`Session not found: ${sessionId}`);
   }
@@ -45,28 +55,62 @@ function endSession(sessionId) {
     throw new Error(`Session is not active: ${sessionId}`);
   }
 
-  const updated = {
-    ...session,
-    status: 'COMPLETED',
-    endTime: new Date(),
-  };
+  const updates = { status: 'COMPLETED', endTime: new Date() };
 
-  const validated = LectureSessionSchema.parse(updated);
-  sessions.set(sessionId, validated);
-  return validated;
+  if (_useSupabase()) {
+    return await supabaseClient.updateSession(sessionId, updates);
+  }
+
+  const updated = LectureSessionSchema.parse({ ...session, ...updates });
+  sessions.set(sessionId, updated);
+  return updated;
 }
 
 /**
  * 세션을 조회한다.
  * @param {string} sessionId - 조회할 세션 ID
- * @returns {object|null} LectureSession 또는 null
+ * @returns {Promise<object|null>} LectureSession 또는 null
  */
-function getSession(sessionId) {
+async function getSession(sessionId) {
+  if (_useSupabase()) {
+    return await supabaseClient.getSession(sessionId);
+  }
   return sessions.get(sessionId) || null;
 }
 
 /**
- * 테스트용: 모든 세션을 초기화한다.
+ * 사용자의 모든 세션을 최신순으로 조회한다.
+ * @param {string} userId - 사용자 UUID
+ * @returns {Promise<Array>} LectureSession 목록
+ */
+async function getSessionsByUser(userId) {
+  if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+    throw new Error('userId is required and must be a non-empty string');
+  }
+  if (_useSupabase()) {
+    return await supabaseClient.getSessionsByUser(userId);
+  }
+  return [...sessions.values()]
+    .filter(s => s.userId === userId)
+    .sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+}
+
+/**
+ * 현재 활성 세션을 조회한다.
+ * @returns {Promise<object|null>}
+ */
+async function getActiveSession() {
+  if (_useSupabase()) {
+    return await supabaseClient.getActiveSession();
+  }
+  const active = [...sessions.values()]
+    .filter(s => s.status === 'ACTIVE')
+    .sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+  return active[0] || null;
+}
+
+/**
+ * 테스트용: 인메모리 세션을 초기화한다.
  */
 function clearSessions() {
   sessions.clear();
@@ -76,5 +120,7 @@ module.exports = {
   createSession,
   endSession,
   getSession,
+  getSessionsByUser,
+  getActiveSession,
   clearSessions,
 };

@@ -47,7 +47,7 @@ describe('Focus REST API', () => {
   describe('POST /api/focus/tab-switch', () => {
     test('returns 200 with persuasion message for non-study site', async () => {
       const app = createApp();
-      const session = createSession(validUserId(), 'Math 101');
+      const session = await createSession(validUserId(), 'Math 101');
 
       const res = await request(app)
         .post('/api/focus/tab-switch')
@@ -63,9 +63,9 @@ describe('Focus REST API', () => {
       expect(res.body.persuasion.urgency).toBe('HIGH');
     });
 
-    test('returns 200 with null persuasion for study site', async () => {
+    test('returns 200 with persuasion for any site (study site included)', async () => {
       const app = createApp();
-      const session = createSession(validUserId(), 'Math 101');
+      const session = await createSession(validUserId(), 'Math 101');
 
       const res = await request(app)
         .post('/api/focus/tab-switch')
@@ -76,7 +76,8 @@ describe('Focus REST API', () => {
         });
 
       expect(res.status).toBe(200);
-      expect(res.body.persuasion).toBeNull();
+      expect(res.body.persuasion).not.toBeNull();
+      expect(res.body.persuasion.message).toBeDefined();
     });
 
     test('returns 400 when sessionId is missing', async () => {
@@ -149,8 +150,8 @@ describe('Focus REST API', () => {
     test('returns 400 when session is not active', async () => {
       const app = createApp();
       const { endSession } = require('../backend/services/sessionManager');
-      const session = createSession(validUserId(), 'English');
-      endSession(session.sessionId);
+      const session = await createSession(validUserId(), 'English');
+      await endSession(session.sessionId);
 
       const res = await request(app)
         .post('/api/focus/tab-switch')
@@ -168,7 +169,7 @@ describe('Focus REST API', () => {
   describe('POST /api/focus/tab-return', () => {
     test('returns 200 with distraction event after tab switch and return', async () => {
       const app = createApp();
-      const session = createSession(validUserId(), 'Physics');
+      const session = await createSession(validUserId(), 'Physics');
       const departureTime = '2024-01-01T10:00:00Z';
       const returnTime = '2024-01-01T10:00:30Z';
 
@@ -198,7 +199,7 @@ describe('Focus REST API', () => {
 
     test('returns 200 with null event when no pending departure', async () => {
       const app = createApp();
-      const session = createSession(validUserId(), 'Art');
+      const session = await createSession(validUserId(), 'Art');
 
       const res = await request(app)
         .post('/api/focus/tab-return')
@@ -252,7 +253,7 @@ describe('Focus REST API', () => {
   describe('GET /api/focus/stats/:sessionId', () => {
     test('returns stats for session with no distractions', async () => {
       const app = createApp();
-      const session = createSession(validUserId(), 'Philosophy');
+      const session = await createSession(validUserId(), 'Philosophy');
 
       const res = await request(app)
         .get(`/api/focus/stats/${session.sessionId}`);
@@ -269,7 +270,7 @@ describe('Focus REST API', () => {
 
     test('returns updated stats after distractions', async () => {
       const app = createApp();
-      const session = createSession(validUserId(), 'Economics');
+      const session = await createSession(validUserId(), 'Economics');
 
       // Distraction 1
       await request(app)

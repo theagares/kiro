@@ -1,6 +1,7 @@
 const { DistractionEventSchema, PersuasionMessageSchema, generateUUID } = require('../models/schemas');
 const { isNonStudySite } = require('./siteClassifier');
 const { getSession } = require('./sessionManager');
+const supabaseClient = require('../db/supabaseClient');
 
 /**
  * FocusHarness 서비스 팩토리.
@@ -49,7 +50,7 @@ function createFocusHarness({ lapseHarness, aiAgent } = {}) {
     }
 
     // 세션 유효성 확인
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
@@ -57,10 +58,7 @@ function createFocusHarness({ lapseHarness, aiAgent } = {}) {
       throw new Error(`Session is not active: ${sessionId}`);
     }
 
-    // 비학습 사이트 판별
-    if (!isNonStudySite(targetUrl)) {
-      return null;
-    }
+    // 탭 전환 자체를 이탈로 판정 (사이트 분류 없이 항상 설득 메시지 생성)
 
     // LapseHarness에서 강의 맥락 조회
     let context = { recentText: '', keywords: [] };
@@ -131,11 +129,18 @@ function createFocusHarness({ lapseHarness, aiAgent } = {}) {
       durationSeconds,
     });
 
-    // 이벤트 저장
+    // 이벤트 저장 (인메모리)
     if (!distractionEvents.has(sessionId)) {
       distractionEvents.set(sessionId, []);
     }
     distractionEvents.get(sessionId).push(distractionEvent);
+
+    // Supabase에도 저장 (비동기, fire-and-forget)
+    if (supabaseClient.isConnected()) {
+      supabaseClient.insertDistractionEvent(distractionEvent).catch(err => {
+        console.error('[FocusHarness] Supabase insertDistractionEvent failed:', err);
+      });
+    }
 
     // 진행 중인 이탈 제거
     pendingDepartures.delete(sessionId);
@@ -149,12 +154,12 @@ function createFocusHarness({ lapseHarness, aiAgent } = {}) {
    * @param {string} sessionId - 세션 ID
    * @returns {object} DistractionStats
    */
-  function getDistractionStats(sessionId) {
+  async function getDistractionStats(sessionId) {
     if (!sessionId) {
       throw new Error('sessionId is required');
     }
 
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
@@ -200,6 +205,55 @@ function createFocusHarness({ lapseHarness, aiAgent } = {}) {
   }
 
   /**
+   * 현재 세션의 집중률이 전체 사용자 대비 상위 몇 퍼센트인지 계산한다.
+   * @param {string} sessionId - 현재 세션 ID
+   * @returns {Promise<object>} { focusRate, percentile, totalSessions, betterThan }
+   */
+  async function getFocusPercentile(sessionId) {
+    if (!sessionId) throw new Error('sessionId is required');
+
+    const session = await getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+
+    // 현재 세션의 집중률 계산
+    const events = distractionEvents.get(sessionId) || [];
+    const totalDistractedSeconds = events.reduce((sum, e) => sum + e.durationSeconds, 0);
+    const now = session.endTime || new Date();
+    const totalSessionSeconds = Math.max(1, Math.round((now.getTime() - session.startTime.getTime()) / 1000));
+    const myFocusRate = Math.max(0, Math.min(1, 1 - (totalDistractedSeconds / totalSessionSeconds)));
+
+    // Supabase에서 전체 세션 집중률 가져오기
+    let allRates = [];
+    if (supabaseClient.isConnected()) {
+      try {
+        allRates = await supabaseClient.getAllSessionFocusRates();
+      } catch (err) {
+        console.error('[FocusHarness] getAllSessionFocusRates failed:', err);
+      }
+    }
+
+    if (allRates.length === 0) {
+      return {
+        focusRate: myFocusRate,
+        percentile: 100,
+        totalSessions: 0,
+        betterThan: 0,
+      };
+    }
+
+    // 나보다 집중률이 낮은 세션 수 계산
+    const betterThan = allRates.filter(r => r.focusRate < myFocusRate).length;
+    const percentile = Math.round((betterThan / allRates.length) * 100);
+
+    return {
+      focusRate: myFocusRate,
+      percentile,
+      totalSessions: allRates.length,
+      betterThan,
+    };
+  }
+
+  /**
    * 테스트용: 모든 데이터를 초기화한다.
    */
   function clearAll() {
@@ -212,6 +266,7 @@ function createFocusHarness({ lapseHarness, aiAgent } = {}) {
     handleTabReturn,
     getDistractionStats,
     getDistractionEvents,
+    getFocusPercentile,
     clearAll,
   };
 }

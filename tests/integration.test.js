@@ -12,7 +12,7 @@ beforeEach(() => {
 describe('Component Integration (app.js DI wiring)', () => {
   describe('FocusHarness → LapseHarness + AIAgent integration', () => {
     test('tab-switch on non-study site returns persuasion with lecture context', async () => {
-      const session = createSession(validUserId(), 'Math 101');
+      const session = await createSession(validUserId(), 'Math 101');
       const sessionId = session.sessionId;
 
       // Start lapse capture and add transcript data
@@ -50,7 +50,7 @@ describe('Component Integration (app.js DI wiring)', () => {
     });
 
     test('tab-switch then tab-return records distraction event', async () => {
-      const session = createSession(validUserId(), 'Physics');
+      const session = await createSession(validUserId(), 'Physics');
       const sessionId = session.sessionId;
       const departure = '2024-06-01T10:00:00Z';
       const returnTime = '2024-06-01T10:00:45Z';
@@ -69,7 +69,7 @@ describe('Component Integration (app.js DI wiring)', () => {
     });
 
     test('distraction stats reflect recorded events', async () => {
-      const session = createSession(validUserId(), 'Chemistry');
+      const session = await createSession(validUserId(), 'Chemistry');
       const sessionId = session.sessionId;
 
       await request(app)
@@ -91,7 +91,7 @@ describe('Component Integration (app.js DI wiring)', () => {
 
   describe('LapseHarness → AIAgent summary integration', () => {
     test('lapse capture stores transcript and returns context', async () => {
-      const session = createSession(validUserId(), 'Biology');
+      const session = await createSession(validUserId(), 'Biology');
       const sessionId = session.sessionId;
 
       await request(app).post(`/api/lapse/start/${sessionId}`);
