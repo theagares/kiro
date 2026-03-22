@@ -135,11 +135,17 @@
         <button class="btn btn-danger" id="btn-end-session" disabled>세션 종료</button>
         <span class="status-msg" id="session-status"></span>
       </div>
-      <h2 style="margin-top:8px;">✏️ 텍스트 직접 입력 (마이크 없이 테스트)</h2>
+      <h2 style="margin-top:8px;">🎙️ 음성 입력 / ✏️ 텍스트 직접 입력</h2>
+      <div class="control-row">
+        <button class="btn btn-primary" id="btn-mic-start" disabled>🎙️ 마이크 시작</button>
+        <button class="btn btn-danger" id="btn-mic-stop" disabled>⏹️ 마이크 중지</button>
+        <span class="status-msg" id="mic-status"></span>
+      </div>
       <textarea class="text-input-area" id="manual-text" placeholder="강의 내용을 여기에 입력하세요...&#10;예: 오늘은 스택과 큐의 차이점에 대해 알아보겠습니다." disabled></textarea>
       <div class="control-row" style="margin-top:8px;">
         <button class="btn btn-primary" id="btn-send-text" disabled>텍스트 전송</button>
         <button class="btn btn-success" id="btn-trigger-summary" disabled>📊 요약 생성</button>
+        <button class="btn btn-danger" id="btn-sim-distraction" disabled>🚨 이탈 시뮬레이션</button>
         <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
           <input type="checkbox" id="chk-auto-send" /> 엔터로 자동 전송
         </label>
@@ -201,6 +207,10 @@
       const manualText = document.getElementById('manual-text');
       const btnSend = document.getElementById('btn-send-text');
       const btnSummary = document.getElementById('btn-trigger-summary');
+      const btnSimDistraction = document.getElementById('btn-sim-distraction');
+      const btnMicStart = document.getElementById('btn-mic-start');
+      const btnMicStop = document.getElementById('btn-mic-stop');
+      const micStatus = document.getElementById('mic-status');
       const chkAuto = document.getElementById('chk-auto-send');
       const sendStatus = document.getElementById('send-status');
 
@@ -217,12 +227,22 @@
           Dashboard.init(currentSessionId);
           // lapseHarness 캡처 시작 (요약 타이머 활성화)
           await fetch(API + '/api/lapse/start/' + currentSessionId, { method: 'POST' });
+          // 브라우저 알림 권한 요청
+          if (window.Notification && window.Notification.permission === 'default') {
+            window.Notification.requestPermission();
+          }
+          // TabMonitor 시작 (탭 이탈 감지)
+          TabMonitor.on('tabSwitch', onTabSwitch);
+          TabMonitor.on('tabReturn', onTabReturn);
+          TabMonitor.startMonitoring(currentSessionId);
           sessionStatus.textContent = '세션 활성: ' + currentSessionId.slice(0, 8) + '...';
           btnStart.disabled = true;
           btnEnd.disabled = false;
           manualText.disabled = false;
           btnSend.disabled = false;
           btnSummary.disabled = false;
+          btnSimDistraction.disabled = false;
+          btnMicStart.disabled = false;
         } catch (e) {
           sessionStatus.textContent = '세션 생성 실패: ' + e.message;
         }
@@ -233,6 +253,10 @@
         try {
           // lapseHarness 캡처 중단
           await fetch(API + '/api/lapse/stop/' + currentSessionId, { method: 'POST' });
+          // TabMonitor 중단
+          TabMonitor.off('tabSwitch', onTabSwitch);
+          TabMonitor.off('tabReturn', onTabReturn);
+          TabMonitor.stopMonitoring();
           await fetch(API + '/api/sessions/' + currentSessionId + '/end', { method: 'PATCH' });
           Dashboard.destroy();
           sessionStatus.textContent = '세션 종료됨';
@@ -241,11 +265,69 @@
           manualText.disabled = true;
           btnSend.disabled = true;
           btnSummary.disabled = true;
+          btnSimDistraction.disabled = true;
+          btnMicStart.disabled = true;
+          btnMicStop.disabled = true;
+          // 마이크 중지
+          if (SpeechCapture.isCapturing()) {
+            SpeechCapture.stopCapture();
+            micStatus.textContent = '';
+          }
           currentSessionId = null;
         } catch (e) {
           sessionStatus.textContent = '종료 실패: ' + e.message;
         }
       });
+
+      // --- 탭 이탈/복귀 핸들러 ---
+      async function onTabSwitch(event) {
+        if (!currentSessionId) return;
+        try {
+          const result = await fetch(API + '/api/focus/tab-switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: currentSessionId,
+              targetUrl: event.targetUrl || 'https://unknown.site',
+              timestamp: (event.timestamp || new Date()).toISOString()
+            })
+          }).then(r => r.json());
+          if (result.persuasion && result.persuasion.message) {
+            // OS 네이티브 알림 (탭을 떠나도 표시됨)
+            if (window.Notification && window.Notification.permission === 'granted') {
+              new window.Notification('📚 강의에 집중하세요!', {
+                body: result.persuasion.message,
+                icon: '📚',
+                requireInteraction: true
+              });
+            }
+            // 오버레이 알림 (탭 복귀 시 보임)
+            NotificationUI.showNotification(result.persuasion);
+            sendStatus.textContent = '🚨 이탈 감지! 설득 메시지 표시됨';
+          } else {
+            sendStatus.textContent = '탭 전환 감지 (학습 사이트)';
+          }
+        } catch (e) {
+          console.error('[Dashboard] tab-switch error:', e);
+        }
+      }
+
+      async function onTabReturn(event) {
+        if (!currentSessionId) return;
+        try {
+          await fetch(API + '/api/focus/tab-return', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: currentSessionId,
+              timestamp: (event.returnTimestamp || new Date()).toISOString()
+            })
+          });
+          sendStatus.textContent = '✅ 복귀 감지';
+        } catch (e) {
+          console.error('[Dashboard] tab-return error:', e);
+        }
+      }
 
       async function sendText() {
         const text = manualText.value.trim();
@@ -296,6 +378,46 @@
           sendStatus.textContent = '요약 실패: ' + e.message;
         }
         btnSummary.disabled = false;
+      });
+
+      // --- 이탈 시뮬레이션 ---
+      let simDistracted = false;
+      btnSimDistraction.addEventListener('click', async () => {
+        if (!currentSessionId) return;
+        if (!simDistracted) {
+          // 이탈 시뮬레이션
+          await onTabSwitch({
+            targetUrl: 'https://youtube.com/watch?v=example',
+            timestamp: new Date()
+          });
+          btnSimDistraction.textContent = '🔙 복귀 시뮬레이션';
+          simDistracted = true;
+        } else {
+          // 복귀 시뮬레이션
+          await onTabReturn({ returnTimestamp: new Date() });
+          btnSimDistraction.textContent = '🚨 이탈 시뮬레이션';
+          simDistracted = false;
+        }
+      });
+
+      // --- 마이크 시작/중지 ---
+      btnMicStart.addEventListener('click', () => {
+        if (!currentSessionId) return;
+        try {
+          SpeechCapture.startCapture(currentSessionId, API);
+          btnMicStart.disabled = true;
+          btnMicStop.disabled = false;
+          micStatus.textContent = '🔴 음성 인식 중...';
+        } catch (e) {
+          micStatus.textContent = '마이크 시작 실패: ' + e.message;
+        }
+      });
+
+      btnMicStop.addEventListener('click', () => {
+        SpeechCapture.stopCapture();
+        btnMicStart.disabled = false;
+        btnMicStop.disabled = true;
+        micStatus.textContent = '마이크 중지됨';
       });
     })();
   </script>
